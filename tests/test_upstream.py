@@ -157,7 +157,11 @@ async def test_compressed_upstream_rejected(api: ClientFactory) -> None:
     ],
 )
 async def test_empty_results(api: ClientFactory, path: str, body: dict[str, Any]) -> None:
-    async with api(lambda _: httpx.Response(200, json=collection())) as client:
+    async with api(
+        lambda _: httpx.Response(
+            200, json={"error": "Unable to geocode"} if path == "/reverse" else collection()
+        )
+    ) as client:
         assert_error(await client.post(path, headers=AUTH, json=body), 404, "no_match")
 
 
@@ -175,7 +179,7 @@ async def test_reverse_no_match(api: ClientFactory, status: int) -> None:
     "payload",
     [
         None,
-        [],
+        [None],
         {},
         {"error": "secret"},
         {"type": "FeatureCollection", "features": [{}]},
@@ -193,13 +197,13 @@ async def test_unexpected_schema(api: ClientFactory, payload: Any) -> None:
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("geometry", {"type": "Point", "coordinates": [181, 0]}),
-        ("geometry", {"type": "Point", "coordinates": [0, 91]}),
-        ("geometry", {"type": "Point", "coordinates": [True, 1]}),
-        ("geometry", {"type": "Polygon", "coordinates": []}),
-        ("bbox", [0, -91, 1, 90]),
-        ("bbox", [0, 80, 1, 70]),
-        ("bbox", [0, 1]),
+        ("lon", "181"),
+        ("lat", "91"),
+        ("lat", True),
+        ("geojson", {"type": "Polygon", "coordinates": []}),
+        ("boundingbox", [0, -91, 1, 90]),
+        ("boundingbox", [80, 0, 1, 70]),
+        ("boundingbox", [0, 1]),
     ],
 )
 async def test_invalid_geometry(api: ClientFactory, key: str, value: Any) -> None:
@@ -214,22 +218,14 @@ async def test_invalid_geometry(api: ClientFactory, key: str, value: Any) -> Non
 
 
 async def test_missing_fields_and_unknown_fields(api: ClientFactory) -> None:
-    payload = collection(
-        {
-            "type": "Feature",
-            "properties": {
-                "geocoding": {
-                    "label": "Bachstraße",
-                    "admin": {"level6": "Not a guessed municipality"},
-                    "extra": {"private": "secret"},
-                    "name": "Not a guessed street",
-                }
-            },
-        }
-    )
+    payload = {"display_name": "Bachstraße", "private": "secret"}
     async with api(lambda _: httpx.Response(200, json=payload)) as client:
         response = await client.post("/reverse", headers=AUTH, json={"latitude": 1, "longitude": 2})
-        assert response.json() == {"display_name": "Bachstraße"}
+        assert response.json() == {
+            "display_name": "Bachstraße",
+            "administrative_level": "unknown",
+            "administrative_levels": [],
+        }
 
 
 async def test_result_count_respects_limit(api: ClientFactory) -> None:
