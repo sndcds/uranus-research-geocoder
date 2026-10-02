@@ -1,0 +1,42 @@
+[Unit]
+Description=Kulturbytes research geocoder
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=research-geocoder
+Group=research-geocoder
+WorkingDirectory=/opt/uranus-research-geocoder
+EnvironmentFile=/etc/research-geocoder/geocoder.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/uranus-research-geocoder/.venv/bin/uvicorn \
+  uranus_research_geocoder.app:create_app \
+  --factory \
+  --host 127.0.0.1 \
+  --port 6337 \
+  --workers 1 \
+  --no-access-log
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+MemoryMax=256M
+TasksMax=32
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target
