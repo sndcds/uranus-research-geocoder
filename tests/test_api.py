@@ -56,6 +56,8 @@ async def test_search(api: ClientFactory, query: str) -> None:
                 "osm_type": "way",
                 "osm_id": osm_id,
                 "place_type": "street",
+                "administrative_level": "unknown",
+                "administrative_levels": [],
                 "country_code": "de",
                 "address": {
                     "road": "Bachstraße",
@@ -78,7 +80,8 @@ async def test_search(api: ClientFactory, query: str) -> None:
     assert request.url.path == "/search"
     assert dict(request.url.params) == {
         "q": query,
-        "format": "geocodejson",
+        "format": "jsonv2",
+        "extratags": "1",
         "addressdetails": "1",
         "limit": "5",
     }
@@ -123,12 +126,11 @@ async def test_reverse(api: ClientFactory, lat: float, lon: float) -> None:
         assert dict(request.url.params) == {
             "lat": str(float(lat)),
             "lon": str(float(lon)),
-            "format": "geocodejson",
+            "format": "jsonv2",
+            "extratags": "1",
             "addressdetails": "1",
         }
-        return httpx.Response(
-            200, json=collection(feature(housenumber="1", municipality="Flensburg"))
-        )
+        return httpx.Response(200, json=feature(housenumber="1", municipality="Flensburg"))
 
     async with api(handler) as client:
         response = await client.post(
@@ -158,7 +160,8 @@ async def test_lookup(api: ClientFactory, kind: str) -> None:
         assert request.url.path == "/lookup"
         assert dict(request.url.params) == {
             "osm_ids": f"{kind}123456",
-            "format": "geocodejson",
+            "format": "jsonv2",
+            "extratags": "1",
             "addressdetails": "1",
         }
         return httpx.Response(200, json=collection(feature()))

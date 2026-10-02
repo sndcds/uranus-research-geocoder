@@ -20,30 +20,45 @@ ClientFactory = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 
 
 def feature(**values: Any) -> dict[str, Any]:
-    return {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [9.43, 54.78]},
-        "bbox": [9.42, 54.77, 9.44, 54.79],
-        "properties": {
-            "geocoding": {
-                "label": "Bachstraße, Flensburg, Schleswig-Holstein, Deutschland",
-                "osm_type": "way",
-                "osm_id": 123456,
-                "type": "street",
-                "country_code": "de",
-                "street": "Bachstraße",
-                "city": "Flensburg",
-                "state": "Schleswig-Holstein",
-                "postcode": "24937",
-                "country": "Deutschland",
-                **values,
-            }
+    address_keys = {
+        "city",
+        "municipality",
+        "state",
+        "country",
+        "country_code",
+        "postcode",
+        "county",
+        "district",
+    }
+    aliases = {"label": "display_name", "street": "road", "housenumber": "house_number"}
+    result: dict[str, Any] = {
+        "display_name": "Bachstraße, Flensburg, Schleswig-Holstein, Deutschland",
+        "osm_type": "way",
+        "osm_id": 123456,
+        "type": "street",
+        "lat": "54.78",
+        "lon": "9.43",
+        "boundingbox": ["54.77", "54.79", "9.42", "9.44"],
+        "address": {
+            "road": "Bachstraße",
+            "city": "Flensburg",
+            "state": "Schleswig-Holstein",
+            "postcode": "24937",
+            "country": "Deutschland",
+            "country_code": "de",
         },
     }
+    for key, value in values.items():
+        key = aliases.get(key, key)
+        if key in address_keys or key in {"road", "house_number"}:
+            result["address"][key] = value
+        else:
+            result[key] = value
+    return result
 
 
-def collection(*features: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "FeatureCollection", "features": list(features)}
+def collection(*features: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(features)
 
 
 @pytest.fixture
@@ -58,7 +73,9 @@ def api() -> ClientFactory:
         if handler is None:
 
             def handler(_: httpx.Request) -> httpx.Response:
-                return httpx.Response(200, json=collection(feature()))
+                return httpx.Response(
+                    200, json=feature() if _.url.path == "/reverse" else collection(feature())
+                )
 
         upstream = NominatimClient(settings, transport=httpx.MockTransport(handler))
         app = create_app(settings, upstream)

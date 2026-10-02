@@ -14,6 +14,7 @@ from .models import LookupRequest, Place, ReverseRequest, SearchRequest
 from .normalization import Status, normalize
 
 MAX_RESPONSE_BYTES = 256 * 1024
+MAX_BOUNDARY_BYTES = 8 * 1024 * 1024
 
 
 def _reject_constant(value: str) -> None:
@@ -71,16 +72,20 @@ class NominatimClient:
         return normalize(await self._request(request), request.limit)
 
     async def reverse(self, request: ReverseRequest) -> Place:
-        return normalize(await self._request(request), 1)[0]
+        return normalize(await self._request(request), 1, reverse=True)[0]
 
     async def lookup(self, request: LookupRequest) -> Place:
-        return normalize(await self._request(request), 1)[0]
+        return normalize(await self._request(request), 1, boundary=request.include_boundary)[0]
 
     async def _request(
         self, request: SearchRequest | ReverseRequest | LookupRequest | None
     ) -> object:
         # Paths and every parameter name are fixed here, never accepted from callers.
-        params: dict[str, str | int | float] = {"format": "geocodejson", "addressdetails": 1}
+        params: dict[str, str | int | float] = {
+            "format": "jsonv2",
+            "addressdetails": 1,
+            "extratags": 1,
+        }
         match request:
             case SearchRequest():
                 path = "/search"
@@ -91,11 +96,18 @@ class NominatimClient:
             case LookupRequest():
                 path = "/lookup"
                 params.update(osm_ids=f"{request.osm_type}{request.osm_id}")
+                if request.include_boundary:
+                    params["polygon_geojson"] = 1
             case None:
                 path = "/status"
                 params = {"format": "json"}
             case _:
                 raise UpstreamError
+        maximum = (
+            MAX_BOUNDARY_BYTES
+            if isinstance(request, LookupRequest) and request.include_boundary
+            else MAX_RESPONSE_BYTES
+        )
         try:
             # Total deadline, including headers and all chunks (not just idle read timeout).
             async with asyncio.timeout(self._timeout):
@@ -122,11 +134,11 @@ class NominatimClient:
                     length = response.headers.get("content-length")
                     if length is not None and (not length.isascii() or not length.isdecimal()):
                         raise UpstreamError
-                    if length is not None and int(length) > MAX_RESPONSE_BYTES:
+                    if length is not None and int(length) > maximum:
                         raise UpstreamError
                     body = bytearray()
                     async for chunk in response.aiter_bytes():
-                        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                        if len(body) + len(chunk) > maximum:
                             raise UpstreamError
                         body.extend(chunk)
                     payload: object = json.loads(body, parse_constant=_reject_constant)
